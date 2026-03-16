@@ -155,8 +155,8 @@ In your repository, go to **Settings → Secrets and variables → Actions** and
 
 | Secret Name | Value |
 |---|---|
-| `GITHUB_CLIENT_ID` | Your OAuth App Client ID |
-| `GITHUB_CLIENT_SECRET` | Your OAuth App Client Secret |
+| `GH_CLIENT_ID` | Your OAuth App Client ID |
+| `GH_CLIENT_SECRET` | Your OAuth App Client Secret |
 
 ### 3. Deploy Frontend — GitHub Pages
 

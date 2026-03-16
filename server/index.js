@@ -7,18 +7,13 @@ config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+const GITHUB_CLIENT_ID = process.env.GH_CLIENT_ID;
+const GITHUB_CLIENT_SECRET = process.env.GH_CLIENT_SECRET;
 const GITHUB_API = "https://api.github.com";
 
-// For OAuth flow, we need client credentials OR a PAT token
+// OAuth flow requires client credentials
 if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
-  console.warn("WARNING: GITHUB_CLIENT_ID/SECRET not set. OAuth flow will not work.");
-}
-
-if (!GITHUB_TOKEN && (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET)) {
-  console.error("ERROR: Either GITHUB_TOKEN or (GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET) must be set.");
+  console.error("ERROR: GH_CLIENT_ID and GH_CLIENT_SECRET must be set as environment variables.");
   process.exit(1);
 }
 
