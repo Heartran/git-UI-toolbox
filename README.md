@@ -74,8 +74,6 @@ git-UI-toolbix/
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/Heartran/git-UI-toolbix.git
-cd git-UI-toolbix
 npm install
 ```
 
@@ -129,7 +127,8 @@ chmod +x rewrite.sh
 Then push the rewritten history:
 
 ```bash
-git push --force-with-lease origin <branch>
+npx wrangler deploy worker.js --name gh-oauth-proxy
+npx wrangler secret put GITHUB_CLIENT_SECRET
 ```
 
 > **Warning**: force-pushing rewrites public history permanently. Make sure you have a backup and coordinate with your team before proceeding. Collaborators will need to re-clone or rebase onto the new history.
@@ -192,7 +191,10 @@ Git UI Toolbox is designed to grow. Planned tools:
 
 Contributions and tool proposals are welcome — open an issue to discuss.
 
----
+- React 18 + Vite 6
+- Zero external UI dependencies
+- GitHub REST API v3
+- Deployed via GitHub Actions → GitHub Pages
 
 ## Contributing
 
