@@ -1,164 +1,141 @@
-# git::rewriter — Git History Editor
+# git::rewriter — History Editor
 
-A web UI for rewriting Git history: edit commit authors, messages, and dates, then export a ready-to-run `git-filter-repo` / `git filter-branch` bash script.
-
-**Architecture**: React frontend (public-facing, zero credentials) + Express backend (holds the GitHub token, proxies all API calls).
-
----
+Visual tool to rewrite git history. Browse your GitHub repos, edit commit authors, messages, and dates through a dark-mode UI, then generate ready-to-run `git-filter-repo` / `git filter-branch` scripts.
 
 ## Features
 
-- Browse all repositories accessible to the configured token
-- Switch between branches
-- Edit per-commit: author name/email, committer name/email, author/committer date, message
-- **Batch mode**: select multiple commits and apply the same author/email changes at once
-- Generate a ready-to-run bash script using `git-filter-repo` (with `git filter-branch` fallback for date changes)
-- Copy the script to clipboard with one click
+- **GitHub auth** — PAT (instant) or OAuth (Authorization Code flow)
+- **Repo browser** — search and browse all your repos
+- **Commit editor** — per-commit editing of author, committer, message, dates
+- **Batch operations** — select multiple commits and apply changes in bulk
+- **Script generation** — generates bash scripts using `git-filter-repo` (mailmap + callbacks) and `git filter-branch` (dates)
+- **Pagination** — lazy-loads commits 30 at a time
 
----
-
-## Project Structure
-
-```
-git-UI-toolbix/
-├── server/
-│   └── index.js          # Express backend — GitHub API proxy
-├── src/
-│   ├── App.jsx
-│   └── GitHistoryRewriter.jsx   # React frontend
-├── .env.example           # Environment variable template
-├── vite.config.js         # Dev proxy: /api → localhost:3001
-└── package.json
-```
-
----
-
-## Setup
-
-### 1. Clone and install
+## Quick Start
 
 ```bash
-git clone https://github.com/Heartran/git-UI-toolbix.git
-cd git-UI-toolbix
 npm install
-```
-
-### 2. Configure the backend
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```env
-# GitHub Personal Access Token with `repo` scope
-# Generate at: https://github.com/settings/tokens
-GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
-
-# Port for the Express backend (default: 3001)
-PORT=3001
-```
-
-The token requires the **`repo`** scope to access private repositories. For public repos only, `public_repo` is sufficient.
-
-### 3. Run in development
-
-Start both processes in separate terminals:
-
-```bash
-# Terminal 1 — Express backend
-npm run server
-
-# Terminal 2 — Vite dev server (proxies /api → localhost:3001)
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open `http://localhost:5173/git-UI-toolbox/` and authenticate with a GitHub PAT.
 
----
+## Deploy to GitHub Pages
 
-## Using the generated script
+Push to `main` — the included GitHub Actions workflow builds and deploys automatically.
 
-The script requires [`git-filter-repo`](https://github.com/newren/git-filter-repo):
+**Requirements:**
+1. Go to repo **Settings → Pages → Source** and select **GitHub Actions**
+2. The workflow at `.github/workflows/deploy.yml` handles the rest
+
+## Authentication
+
+### Option A: Personal Access Token (recommended for quick use)
+
+1. Go to [github.com/settings/tokens](https://github.com/settings/tokens)
+2. Create a token with `repo` scope
+3. Paste it in the app
+
+### Option B: OAuth (for production / shared use)
+
+OAuth requires a small server-side component to exchange the authorization code for an access token (GitHub blocks direct browser requests to their token endpoint via CORS).
+
+#### 1. Register an OAuth App
+
+- Go to [github.com/settings/developers](https://github.com/settings/developers)
+- **New OAuth App**
+- Set **Authorization callback URL** to your deployed app URL:
+  ```
+  https://heartran.github.io/git-UI-toolbox/
+  ```
+- Note the **Client ID**
+
+#### 2. Deploy a Token Exchange Proxy
+
+The simplest option is a **Cloudflare Worker** (free tier is plenty):
+
+```javascript
+// worker.js — Cloudflare Worker for GitHub OAuth token exchange
+export default {
+  async fetch(request, env) {
+    // CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': 'https://heartran.github.io',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        },
+      });
+    }
+
+    if (request.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 });
+    }
+
+    const { client_id, code } = await request.json();
+
+    const res = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        client_id,
+        client_secret: env.GITHUB_CLIENT_SECRET, // Set as Worker secret
+        code,
+      }),
+    });
+
+    const data = await res.json();
+
+    return new Response(JSON.stringify(data), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': 'https://heartran.github.io',
+      },
+    });
+  },
+};
+```
+
+Deploy it:
+```bash
+npx wrangler deploy worker.js --name gh-oauth-proxy
+npx wrangler secret put GITHUB_CLIENT_SECRET
+```
+
+#### 3. Configure in the app
+
+Enter the **Client ID** and the **Worker URL** (e.g. `https://gh-oauth-proxy.your-subdomain.workers.dev`) in the OAuth tab.
+
+## How It Works
+
+The app does **not** modify your repository directly. Instead:
+
+1. You browse commits via the GitHub API
+2. You edit metadata through the UI
+3. The app generates a bash script that uses:
+   - `git-filter-repo --mailmap` for author/committer changes
+   - `git-filter-repo --message-callback` for commit messages
+   - `git filter-branch --env-filter` for date changes
+4. You run the script locally on your cloned repo
+5. You `git push --force-with-lease` when ready
+
+### Prerequisites for running generated scripts
 
 ```bash
 pip install git-filter-repo
 ```
 
-Then run the downloaded script **inside your local clone** of the repository:
+## Tech Stack
 
-```bash
-chmod +x rewrite.sh
-./rewrite.sh
-```
+- React 18 + Vite 6
+- Zero external UI dependencies
+- GitHub REST API v3
+- Deployed via GitHub Actions → GitHub Pages
 
-After the script completes, push the rewritten history:
+## License
 
-```bash
-git push --force-with-lease origin <branch>
-```
-
-> **Warning**: force-pushing rewrites public history. Coordinate with your team before proceeding.
-
----
-
-## Deploying the frontend to GitHub Pages
-
-The frontend is a static React app and can be hosted on GitHub Pages. The backend must be separately deployed (e.g. on Railway, Render, Fly.io, or your own server) and exposed via HTTPS.
-
-### 1. Set the Vite base path
-
-In `vite.config.js`, uncomment and update the `base` option to match your repository name:
-
-```js
-base: '/git-UI-toolbix/',
-```
-
-### 2. Point the frontend to the production backend
-
-Set the `VITE_API_BASE` environment variable at build time to your backend URL:
-
-```bash
-VITE_API_BASE=https://your-backend.example.com npm run build
-```
-
-The `apiFetch` helper in `GitHistoryRewriter.jsx` uses this variable:
-
-```js
-const apiFetch = (path) =>
-  fetch(`${import.meta.env.VITE_API_BASE || ''}/api${path}`).then(...)
-```
-
-### 3. Use the provided GitHub Actions workflow
-
-The repository includes `.github/workflows/deploy.yml`. Push to `main` and the workflow will build and deploy to the `gh-pages` branch automatically.
-
-**Required repository secret** (Settings → Secrets → Actions):
-
-| Secret | Value |
-|---|---|
-| `VITE_API_BASE` | Full URL of your deployed backend, e.g. `https://api.example.com` |
-
-Enable GitHub Pages in your repository settings: **Source → Deploy from branch → `gh-pages` / `/ (root)`**.
-
----
-
-## Backend deployment (any Node.js host)
-
-The backend is a plain Express app. Set the following environment variables on your host:
-
-| Variable | Description |
-|---|---|
-| `GITHUB_TOKEN` | GitHub PAT with `repo` scope |
-| `PORT` | Port to listen on (default: `3001`) |
-
-Allow CORS from your GitHub Pages domain by adding it to the `cors()` config in `server/index.js` if you want to restrict origins in production.
-
----
-
-## Security notes
-
-- The `GITHUB_TOKEN` is **never sent to the browser**. All GitHub API calls are proxied through the backend.
-- The generated bash script contains commit SHAs and metadata from your repository but no credentials.
-- Restrict CORS in the backend to your frontend origin in production.
+MIT
