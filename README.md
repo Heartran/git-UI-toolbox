@@ -1,19 +1,47 @@
-# git::rewriter — Git History Editor
+# Git UI Toolbox
 
-A web UI for rewriting Git history: edit commit authors, messages, and dates, then export a ready-to-run `git-filter-repo` / `git filter-branch` bash script.
+A collection of browser-based tools for Git power users — visual interfaces for operations that would otherwise require arcane command-line incantations.
 
-**Architecture**: React frontend (public-facing, zero credentials) + Express backend (holds the GitHub token, proxies all API calls).
+Each tool in the toolbox is self-contained, works against the GitHub API, and outputs portable shell scripts you can inspect, version, and run locally. No magic, no black boxes: the UI does the thinking, the script does the work.
+
+> **Current tool**: [git::rewriter](#gitrewriter--history-editor) — rewrite commit authors, messages, and dates across any branch.
 
 ---
 
-## Features
+## Architecture
 
-- Browse all repositories accessible to the configured token
-- Switch between branches
-- Edit per-commit: author name/email, committer name/email, author/committer date, message
-- **Batch mode**: select multiple commits and apply the same author/email changes at once
-- Generate a ready-to-run bash script using `git-filter-repo` (with `git filter-branch` fallback for date changes)
-- Copy the script to clipboard with one click
+```
+Browser (React, zero credentials)
+        │
+        │  /api/*
+        ▼
+Express backend  ──►  GitHub API
+  (GITHUB_TOKEN)
+```
+
+The frontend is a fully public static app. All GitHub API calls are proxied through a lightweight Express backend that holds the token server-side. Credentials never reach the browser.
+
+---
+
+## Tools
+
+### git::rewriter — History Editor
+
+Rewrite the history of any repository you have access to, then export a ready-to-run bash script that applies the changes via `git-filter-repo`.
+
+**What you can edit per commit:**
+
+| Field | Description |
+|---|---|
+| Author name & email | Change who is recorded as the commit author |
+| Committer name & email | Change the committer identity (often the same as author) |
+| Author date | Redate when the change was authored |
+| Committer date | Redate when the commit was applied |
+| Commit message | Rewrite the message body |
+
+**Batch mode**: select any number of commits and apply the same author/email values to all of them at once — useful for consolidating identities across a repository's entire history.
+
+**Script output**: the tool generates a commented bash script using `git-filter-repo` (falling back to `git filter-branch` for per-commit date changes). You copy it, run it locally on your clone, then force-push. The web UI never touches your repository directly.
 
 ---
 
@@ -21,19 +49,27 @@ A web UI for rewriting Git history: edit commit authors, messages, and dates, th
 
 ```
 git-UI-toolbix/
+├── .github/
+│   └── workflows/
+│       └── deploy.yml        # GitHub Pages CI/CD
 ├── server/
-│   └── index.js          # Express backend — GitHub API proxy
+│   └── index.js              # Express backend — GitHub API proxy
 ├── src/
 │   ├── App.jsx
-│   └── GitHistoryRewriter.jsx   # React frontend
-├── .env.example           # Environment variable template
-├── vite.config.js         # Dev proxy: /api → localhost:3001
+│   └── GitHistoryRewriter.jsx
+├── .env.example              # Environment variable template
+├── vite.config.js            # Dev proxy: /api → localhost:3001
 └── package.json
 ```
 
 ---
 
 ## Setup
+
+### Prerequisites
+
+- Node.js 18+
+- A GitHub Personal Access Token ([create one](https://github.com/settings/tokens)) with the **`repo`** scope (or `public_repo` if you only need public repositories)
 
 ### 1. Clone and install
 
@@ -53,24 +89,21 @@ Edit `.env`:
 
 ```env
 # GitHub Personal Access Token with `repo` scope
-# Generate at: https://github.com/settings/tokens
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 
 # Port for the Express backend (default: 3001)
 PORT=3001
 ```
 
-The token requires the **`repo`** scope to access private repositories. For public repos only, `public_repo` is sufficient.
+### 3. Start
 
-### 3. Run in development
-
-Start both processes in separate terminals:
+Open two terminals:
 
 ```bash
-# Terminal 1 — Express backend
+# Terminal 1 — Express backend (holds the token, proxies GitHub API)
 npm run server
 
-# Terminal 2 — Vite dev server (proxies /api → localhost:3001)
+# Terminal 2 — Vite dev server (proxies /api → localhost:3001 automatically)
 npm run dev
 ```
 
@@ -78,87 +111,92 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ---
 
-## Using the generated script
+## Applying the generated script
 
-The script requires [`git-filter-repo`](https://github.com/newren/git-filter-repo):
+The generated script requires [`git-filter-repo`](https://github.com/newren/git-filter-repo):
 
 ```bash
 pip install git-filter-repo
 ```
 
-Then run the downloaded script **inside your local clone** of the repository:
+Run it inside your **local clone** of the target repository:
 
 ```bash
 chmod +x rewrite.sh
 ./rewrite.sh
 ```
 
-After the script completes, push the rewritten history:
+Then push the rewritten history:
 
 ```bash
 git push --force-with-lease origin <branch>
 ```
 
-> **Warning**: force-pushing rewrites public history. Coordinate with your team before proceeding.
+> **Warning**: force-pushing rewrites public history permanently. Make sure you have a backup and coordinate with your team before proceeding. Collaborators will need to re-clone or rebase onto the new history.
 
 ---
 
-## Deploying the frontend to GitHub Pages
+## Deployment
 
-The frontend is a static React app and can be hosted on GitHub Pages. The backend must be separately deployed (e.g. on Railway, Render, Fly.io, or your own server) and exposed via HTTPS.
+### Frontend — GitHub Pages
 
-### 1. Set the Vite base path
+The frontend builds to a static bundle and can be hosted anywhere. A GitHub Actions workflow is included.
 
-In `vite.config.js`, uncomment and update the `base` option to match your repository name:
+**1. Set the Vite base path** in `vite.config.js` to match your repository name:
 
 ```js
 base: '/git-UI-toolbix/',
 ```
 
-### 2. Point the frontend to the production backend
-
-Set the `VITE_API_BASE` environment variable at build time to your backend URL:
-
-```bash
-VITE_API_BASE=https://your-backend.example.com npm run build
-```
-
-The `apiFetch` helper in `GitHistoryRewriter.jsx` uses this variable:
-
-```js
-const apiFetch = (path) =>
-  fetch(`${import.meta.env.VITE_API_BASE || ''}/api${path}`).then(...)
-```
-
-### 3. Use the provided GitHub Actions workflow
-
-The repository includes `.github/workflows/deploy.yml`. Push to `main` and the workflow will build and deploy to the `gh-pages` branch automatically.
-
-**Required repository secret** (Settings → Secrets → Actions):
+**2. Add the repository secret** (Settings → Secrets and variables → Actions):
 
 | Secret | Value |
 |---|---|
-| `VITE_API_BASE` | Full URL of your deployed backend, e.g. `https://api.example.com` |
+| `VITE_API_BASE` | Full HTTPS URL of your deployed backend, e.g. `https://api.example.com` |
 
-Enable GitHub Pages in your repository settings: **Source → Deploy from branch → `gh-pages` / `/ (root)`**.
+**3. Enable GitHub Pages** in repository settings: Source → **GitHub Actions**.
 
----
+Push to `main` — the workflow in `.github/workflows/deploy.yml` will build and deploy automatically.
 
-## Backend deployment (any Node.js host)
+### Backend — any Node.js host
 
-The backend is a plain Express app. Set the following environment variables on your host:
+The backend is a plain Express app with no database and no state. It can be deployed to Railway, Render, Fly.io, a VPS, or any platform that runs Node.js.
+
+Required environment variables:
 
 | Variable | Description |
 |---|---|
 | `GITHUB_TOKEN` | GitHub PAT with `repo` scope |
 | `PORT` | Port to listen on (default: `3001`) |
 
-Allow CORS from your GitHub Pages domain by adding it to the `cors()` config in `server/index.js` if you want to restrict origins in production.
+For production, restrict the `cors()` origin in `server/index.js` to your frontend domain.
 
 ---
 
-## Security notes
+## Security
 
-- The `GITHUB_TOKEN` is **never sent to the browser**. All GitHub API calls are proxied through the backend.
-- The generated bash script contains commit SHAs and metadata from your repository but no credentials.
-- Restrict CORS in the backend to your frontend origin in production.
+- `GITHUB_TOKEN` lives exclusively in the backend process — never in the built assets, never sent to the browser.
+- The generated bash scripts contain repository metadata (commit SHAs, author names) but no credentials.
+- The frontend is fully auditable: it is a static React app with no hidden network calls.
+
+---
+
+## Roadmap
+
+Git UI Toolbox is designed to grow. Planned tools:
+
+- **git::blame-explorer** — visualise blame across file history with author filtering
+- **git::conflict-resolver** — side-by-side merge conflict resolution UI
+- **git::tag-manager** — create, annotate, delete, and push tags across repositories
+- **git::branch-cleaner** — bulk-delete merged or stale branches with preview
+
+Contributions and tool proposals are welcome — open an issue to discuss.
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feat/your-tool`
+3. Follow the existing code style (React functional components, inline styles with the shared design tokens in `GitHistoryRewriter.jsx`)
+4. Open a pull request describing what the tool does and why it belongs in the toolbox
