@@ -1,42 +1,33 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-const GITHUB_API = "https://api.github.com";
+// — API helpers (calls our backend, no token in the browser) —
+// VITE_API_BASE can be set at build time for production deploys (e.g. GitHub Pages)
+const API_BASE = import.meta.env.VITE_API_BASE || "";
 
-// — Utility helpers —
-const fetchGH = async (path, token, opts = {}) => {
-  const res = await fetch(`${GITHUB_API}${path}`, {
-    ...opts,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github.v3+json",
-      ...(opts.headers || {}),
-    },
-  });
-  if (!res.ok) throw new Error(`GitHub API ${res.status}: ${res.statusText}`);
-  return res.json();
+const apiFetch = async (path) => {
+  const res = await fetch(`${API_BASE}/api${path}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || `API ${res.status}`);
+  return body;
 };
 
+// — Utility helpers —
 const shortSha = (sha) => sha?.slice(0, 7) || "";
 const fmtDate = (d) => {
   if (!d) return "";
-  const dt = new Date(d);
-  return dt.toLocaleString("it-IT", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+  return new Date(d).toLocaleString("it-IT", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
   });
 };
 const isoLocal = (d) => {
   if (!d) return "";
   const dt = new Date(d);
-  const off = dt.getTimezoneOffset();
-  const local = new Date(dt.getTime() - off * 60000);
+  const local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
 };
 
-// — Styles —
+// — Design tokens —
 const colors = {
   bg: "#0a0a0f",
   surface: "#12121a",
@@ -44,7 +35,6 @@ const colors = {
   border: "#2a2a3a",
   borderFocus: "#d4a843",
   accent: "#d4a843",
-  accentDim: "#a07d2e",
   accentGlow: "rgba(212,168,67,0.15)",
   text: "#e8e6e0",
   textDim: "#8a8890",
@@ -53,21 +43,18 @@ const colors = {
   dangerBg: "rgba(201,64,64,0.1)",
   success: "#4a9e6a",
   successBg: "rgba(74,158,106,0.1)",
-  blue: "#5a8ec9",
 };
 
 const font = {
-  mono: "'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', monospace",
-  sans: "'DM Sans', 'Satoshi', system-ui, sans-serif",
+  mono: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace",
+  sans: "'DM Sans', system-ui, sans-serif",
 };
-
-// — Sub-components —
 
 const globalStyles = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-  @keyframes slideIn { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: translateX(0); } }
-  @keyframes fadeUp { from { opacity:0; transform: translateY(15px); } to { opacity:1; transform: translateY(0); } }
-  @keyframes pulse { 0%,100% { opacity:0.4; } 50% { opacity:1; } }
+  @keyframes slideIn  { from { opacity:0; transform: translateX(20px);  } to { opacity:1; transform: translateX(0);   } }
+  @keyframes fadeUp   { from { opacity:0; transform: translateY(15px);  } to { opacity:1; transform: translateY(0);   } }
+  @keyframes spin     { to   { transform: rotate(360deg); } }
   * { box-sizing: border-box; }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: ${colors.bg}; }
@@ -75,28 +62,21 @@ const globalStyles = `
   ::-webkit-scrollbar-thumb:hover { background: ${colors.textMuted}; }
 `;
 
+// — Shared UI primitives —
+
 const Btn = ({ children, onClick, variant = "default", disabled, style: s = {} }) => (
   <button
     disabled={disabled}
     onClick={onClick}
     style={{
-      padding: "8px 16px",
-      border: "1px solid",
-      borderColor:
-        variant === "accent" ? colors.accent : variant === "danger" ? colors.danger : colors.border,
-      background:
-        variant === "accent" ? colors.accent : "transparent",
-      color:
-        variant === "accent" ? colors.bg : variant === "danger" ? colors.danger : colors.text,
-      borderRadius: 4,
-      cursor: disabled ? "not-allowed" : "pointer",
-      fontFamily: font.mono,
-      fontSize: 12,
-      fontWeight: 600,
-      opacity: disabled ? 0.4 : 1,
-      letterSpacing: "0.5px",
-      transition: "all 0.15s ease",
-      textTransform: "uppercase",
+      padding: "8px 16px", border: "1px solid",
+      borderColor: variant === "accent" ? colors.accent : variant === "danger" ? colors.danger : colors.border,
+      background: variant === "accent" ? colors.accent : "transparent",
+      color: variant === "accent" ? colors.bg : variant === "danger" ? colors.danger : colors.text,
+      borderRadius: 4, cursor: disabled ? "not-allowed" : "pointer",
+      fontFamily: font.mono, fontSize: 12, fontWeight: 600,
+      opacity: disabled ? 0.4 : 1, letterSpacing: "0.5px",
+      transition: "all 0.15s ease", textTransform: "uppercase",
       ...s,
     }}
   >
@@ -111,17 +91,9 @@ const Input = ({ value, onChange, placeholder, type = "text", style: s = {} }) =
     onChange={(e) => onChange(e.target.value)}
     placeholder={placeholder}
     style={{
-      padding: "8px 12px",
-      background: colors.bg,
-      border: `1px solid ${colors.border}`,
-      borderRadius: 4,
-      color: colors.text,
-      fontFamily: font.mono,
-      fontSize: 13,
-      width: "100%",
-      outline: "none",
-      transition: "border-color 0.15s",
-      boxSizing: "border-box",
+      padding: "8px 12px", background: colors.bg, border: `1px solid ${colors.border}`,
+      borderRadius: 4, color: colors.text, fontFamily: font.mono, fontSize: 13,
+      width: "100%", outline: "none", transition: "border-color 0.15s", boxSizing: "border-box",
       ...s,
     }}
     onFocus={(e) => (e.target.style.borderColor = colors.borderFocus)}
@@ -129,100 +101,84 @@ const Input = ({ value, onChange, placeholder, type = "text", style: s = {} }) =
   />
 );
 
-// CommitRow is extracted so useState is called at the component level, not inside a map
+const Spinner = () => (
+  <div style={{
+    width: 16, height: 16, border: `2px solid ${colors.border}`,
+    borderTopColor: colors.accent, borderRadius: "50%",
+    animation: "spin 0.7s linear infinite", display: "inline-block",
+  }} />
+);
+
+// CommitRow extracted so useState is at component level (Rules of Hooks)
 const CommitRow = ({ c, isSelected, hasEdit, edit, onToggleSelect, onSetEdit, onClearEdit }) => {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div
-      style={{
-        borderBottom: `1px solid ${colors.border}`,
-        background: hasEdit ? colors.accentGlow : "transparent",
-        transition: "background 0.15s",
-      }}
-    >
-      {/* Commit summary row */}
+    <div style={{
+      borderBottom: `1px solid ${colors.border}`,
+      background: hasEdit ? colors.accentGlow : "transparent",
+      transition: "background 0.15s",
+    }}>
+      {/* Summary row */}
       <div
         style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer" }}
         onClick={() => setExpanded((v) => !v)}
       >
         <input
-          type="checkbox"
-          checked={isSelected}
+          type="checkbox" checked={isSelected}
           onChange={(e) => { e.stopPropagation(); onToggleSelect(c.sha); }}
           onClick={(e) => e.stopPropagation()}
           style={{ accentColor: colors.accent, cursor: "pointer", width: 14, height: 14, flexShrink: 0 }}
         />
-
         <span style={{ fontFamily: font.mono, fontSize: 12, color: colors.accent, flexShrink: 0, width: 65 }}>
           {shortSha(c.sha)}
         </span>
-
         <div style={{
-          width: 8, height: 8, borderRadius: "50%",
+          width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
           background: hasEdit ? colors.accent : colors.textMuted,
-          flexShrink: 0,
           border: `2px solid ${hasEdit ? colors.accent : colors.border}`,
         }} />
-
         <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           <span style={{ fontSize: 13, color: hasEdit && edit.message ? colors.accent : colors.text }}>
             {edit.message || c.commit.message.split("\n")[0]}
           </span>
         </div>
-
         <div style={{
-          fontFamily: font.mono, fontSize: 11,
+          fontFamily: font.mono, fontSize: 11, flexShrink: 0,
+          maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           color: hasEdit && (edit.authorName || edit.authorEmail) ? colors.accent : colors.textDim,
-          flexShrink: 0, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>
           {edit.authorName || c.commit.author.name}
         </div>
-
         <div style={{ fontFamily: font.mono, fontSize: 10, color: colors.textMuted, flexShrink: 0, width: 130, textAlign: "right" }}>
           {fmtDate(edit.authorDate || c.commit.author.date)}
         </div>
-
         <span style={{
           color: colors.textMuted, fontSize: 12, flexShrink: 0,
-          transition: "transform 0.2s",
-          transform: expanded ? "rotate(90deg)" : "rotate(0)",
+          transition: "transform 0.2s", transform: expanded ? "rotate(90deg)" : "rotate(0)",
         }}>▶</span>
       </div>
 
-      {/* Expanded edit panel */}
+      {/* Edit panel */}
       {expanded && (
         <div style={{
-          padding: "12px 12px 16px 50px",
-          background: colors.surface,
-          borderTop: `1px solid ${colors.border}`,
-          animation: "fadeUp 0.2s ease",
+          padding: "12px 12px 16px 50px", background: colors.surface,
+          borderTop: `1px solid ${colors.border}`, animation: "fadeUp 0.2s ease",
         }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <div>
-              <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>
-                Author Name <span style={{ color: colors.textMuted }}>({c.commit.author.name})</span>
-              </label>
-              <Input value={edit.authorName || ""} onChange={(v) => onSetEdit(c.sha, "authorName", v)} placeholder={c.commit.author.name} />
-            </div>
-            <div>
-              <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>
-                Author Email <span style={{ color: colors.textMuted }}>({c.commit.author.email})</span>
-              </label>
-              <Input value={edit.authorEmail || ""} onChange={(v) => onSetEdit(c.sha, "authorEmail", v)} placeholder={c.commit.author.email} />
-            </div>
-            <div>
-              <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>
-                Committer Name <span style={{ color: colors.textMuted }}>({c.commit.committer.name})</span>
-              </label>
-              <Input value={edit.committerName || ""} onChange={(v) => onSetEdit(c.sha, "committerName", v)} placeholder={c.commit.committer.name} />
-            </div>
-            <div>
-              <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>
-                Committer Email <span style={{ color: colors.textMuted }}>({c.commit.committer.email})</span>
-              </label>
-              <Input value={edit.committerEmail || ""} onChange={(v) => onSetEdit(c.sha, "committerEmail", v)} placeholder={c.commit.committer.email} />
-            </div>
+            {[
+              ["authorName",      "Author Name",      c.commit.author.name],
+              ["authorEmail",     "Author Email",     c.commit.author.email],
+              ["committerName",   "Committer Name",   c.commit.committer.name],
+              ["committerEmail",  "Committer Email",  c.commit.committer.email],
+            ].map(([field, label, orig]) => (
+              <div key={field}>
+                <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>
+                  {label} <span style={{ color: colors.textMuted }}>({orig})</span>
+                </label>
+                <Input value={edit[field] || ""} onChange={(v) => onSetEdit(c.sha, field, v)} placeholder={orig} />
+              </div>
+            ))}
             <div>
               <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>
                 Author Date
@@ -246,12 +202,10 @@ const CommitRow = ({ c, isSelected, hasEdit, edit, onToggleSelect, onSetEdit, on
               placeholder={c.commit.message}
               rows={3}
               style={{
-                width: "100%", padding: "8px 12px",
-                background: colors.bg, border: `1px solid ${colors.border}`,
-                borderRadius: 4, color: colors.text,
-                fontFamily: font.mono, fontSize: 12,
-                outline: "none", resize: "vertical",
-                boxSizing: "border-box", lineHeight: 1.5,
+                width: "100%", padding: "8px 12px", background: colors.bg,
+                border: `1px solid ${colors.border}`, borderRadius: 4,
+                color: colors.text, fontFamily: font.mono, fontSize: 12,
+                outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5,
               }}
               onFocus={(e) => (e.target.style.borderColor = colors.borderFocus)}
               onBlur={(e) => (e.target.style.borderColor = colors.border)}
@@ -270,12 +224,10 @@ const CommitRow = ({ c, isSelected, hasEdit, edit, onToggleSelect, onSetEdit, on
   );
 };
 
-// — Main Component —
+// — Main component —
 export default function GitHistoryRewriter() {
-  const [token, setToken] = useState("");
-  const [authed, setAuthed] = useState(false);
   const [user, setUser] = useState(null);
-  const [view, setView] = useState("auth"); // auth | repos | editor | script
+  const [view, setView] = useState("loading"); // loading | repos | editor | script
   const [repos, setRepos] = useState([]);
   const [repoSearch, setRepoSearch] = useState("");
   const [selectedRepo, setSelectedRepo] = useState(null);
@@ -289,149 +241,78 @@ export default function GitHistoryRewriter() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [batchMode, setBatchMode] = useState(false);
-  const [batchValues, setBatchValues] = useState({
-    authorName: "", authorEmail: "", committerName: "", committerEmail: "",
-  });
-  const [oauthClientId, setOauthClientId] = useState("");
-  const [oauthStep, setOauthStep] = useState(null);
-  const [deviceCode, setDeviceCode] = useState(null);
+  const [batchValues, setBatchValues] = useState({ authorName: "", authorEmail: "", committerName: "", committerEmail: "" });
   const [scriptGenerated, setScriptGenerated] = useState("");
   const [notification, setNotification] = useState(null);
-  const [authTab, setAuthTab] = useState("pat"); // pat | oauth
-  const pollRef = useRef(null);
+  const initDone = useRef(false);
 
   const notify = (msg, type = "info") => {
     setNotification({ msg, type });
     setTimeout(() => setNotification(null), 3500);
   };
 
-  // — Auth —
-  const loginPAT = async () => {
-    if (!token.trim()) return;
-    setLoading(true);
-    setError("");
-    try {
-      const u = await fetchGH("/user", token);
-      setUser(u);
-      setAuthed(true);
-      setView("repos");
-      notify(`Autenticato come ${u.login}`, "success");
-    } catch {
-      setError("Token non valido o scaduto. Riprova.");
-    }
-    setLoading(false);
-  };
-
-  const startOAuth = async () => {
-    if (!oauthClientId.trim()) return;
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch("https://github.com/login/device/code", {
-        method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify({ client_id: oauthClientId, scope: "repo" }),
+  // Bootstrap: fetch the authenticated user from the backend
+  useEffect(() => {
+    if (initDone.current) return;
+    initDone.current = true;
+    apiFetch("/user")
+      .then((u) => {
+        setUser(u);
+        setView("repos");
+      })
+      .catch(() => {
+        setError("Impossibile connettersi al backend. Assicurati che il server sia avviato e che GITHUB_TOKEN sia configurato.");
+        setView("error");
       });
-      if (!res.ok) throw new Error("Failed to start device flow");
-      const data = await res.json();
-      setDeviceCode(data);
-      setOauthStep("waiting");
-      startPolling(data);
-    } catch {
-      setError(
-        "Errore nell'avvio OAuth. Verifica il Client ID e che l'app abbia il Device Flow abilitato. " +
-        "Nota: il Device Flow di GitHub potrebbe essere bloccato da CORS nel browser."
-      );
-    }
-    setLoading(false);
-  };
-
-  const startPolling = (dc) => {
-    const interval = (dc.interval || 5) * 1000;
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch("https://github.com/login/oauth/access_token", {
-          method: "POST",
-          headers: { Accept: "application/json", "Content-Type": "application/json" },
-          body: JSON.stringify({
-            client_id: oauthClientId,
-            device_code: dc.device_code,
-            grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-          }),
-        });
-        const data = await res.json();
-        if (data.access_token) {
-          clearInterval(pollRef.current);
-          setToken(data.access_token);
-          const u = await fetchGH("/user", data.access_token);
-          setUser(u);
-          setAuthed(true);
-          setView("repos");
-          setOauthStep(null);
-          notify(`OAuth completato! Benvenuto ${u.login}`, "success");
-        }
-      } catch {}
-    }, interval);
-  };
-
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  }, []);
 
   // — Repos —
   const loadRepos = useCallback(async () => {
     setLoading(true);
+    setError("");
     try {
-      const r = await fetchGH(
-        "/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member",
-        token
-      );
+      const r = await apiFetch("/repos");
       setRepos(r);
-    } catch {
-      setError("Errore nel caricamento dei repository.");
+    } catch (e) {
+      setError("Errore nel caricamento dei repository: " + e.message);
     }
     setLoading(false);
-  }, [token]);
+  }, []);
 
   useEffect(() => {
-    if (authed && view === "repos") loadRepos();
-  }, [authed, view, loadRepos]);
+    if (view === "repos") loadRepos();
+  }, [view, loadRepos]);
 
   const searchRepos = async () => {
     if (!repoSearch.trim()) { loadRepos(); return; }
     setLoading(true);
+    setError("");
     try {
-      const r = await fetchGH(
-        `/search/repositories?q=${encodeURIComponent(repoSearch)}+user:${user.login}&per_page=30`,
-        token
-      );
-      setRepos(r.items || []);
-    } catch {
-      setError("Errore nella ricerca.");
+      const r = await apiFetch(`/repos/search?q=${encodeURIComponent(repoSearch)}&login=${user?.login || ""}`);
+      setRepos(r);
+    } catch (e) {
+      setError("Errore nella ricerca: " + e.message);
     }
     setLoading(false);
   };
 
-  const loadCommits = useCallback(async (repoName, branch, pg = 1, reset = false) => {
-    const rn = repoName || selectedRepo?.full_name;
+  const loadCommits = useCallback(async (repoFullName, branch, pg = 1, reset = false) => {
+    const rn = repoFullName || selectedRepo?.full_name;
     const br = branch || selectedBranch;
     if (!rn) return;
     setLoading(true);
+    setError("");
     try {
-      const c = await fetchGH(
-        `/repos/${rn}/commits?sha=${encodeURIComponent(br)}&per_page=30&page=${pg}`,
-        token
-      );
-      if (reset) {
-        setCommits(c);
-      } else {
-        setCommits((prev) => [...prev, ...c]);
-      }
+      const [owner, repo] = rn.split("/");
+      const c = await apiFetch(`/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(br)}&page=${pg}`);
+      setCommits((prev) => reset ? c : [...prev, ...c]);
       setHasMore(c.length === 30);
       setPage(pg);
-    } catch {
-      setError("Errore nel caricamento dei commit.");
+    } catch (e) {
+      setError("Errore nel caricamento dei commit: " + e.message);
     }
     setLoading(false);
-  }, [selectedRepo, selectedBranch, token]);
+  }, [selectedRepo, selectedBranch]);
 
   const selectRepo = async (repo) => {
     setSelectedRepo(repo);
@@ -441,14 +322,16 @@ export default function GitHistoryRewriter() {
     setSelected(new Set());
     setPage(1);
     setHasMore(true);
+    setError("");
     try {
-      const b = await fetchGH(`/repos/${repo.full_name}/branches?per_page=100`, token);
+      const [owner, name] = repo.full_name.split("/");
+      const b = await apiFetch(`/repos/${owner}/${name}/branches`);
       setBranches(b);
       const defaultBr = repo.default_branch || "main";
       setSelectedBranch(defaultBr);
       await loadCommits(repo.full_name, defaultBr, 1, true);
-    } catch {
-      setError("Errore nel caricamento del repository.");
+    } catch (e) {
+      setError("Errore nel caricamento del repository: " + e.message);
     }
     setLoading(false);
     setView("editor");
@@ -465,38 +348,30 @@ export default function GitHistoryRewriter() {
 
   // — Edit logic —
   const getEdit = (sha) => edits[sha] || {};
-  const setEdit = (sha, field, value) => {
-    setEdits((prev) => ({
-      ...prev,
-      [sha]: { ...prev[sha], [field]: value },
-    }));
+  const setEdit = (sha, field, value) =>
+    setEdits((prev) => ({ ...prev, [sha]: { ...prev[sha], [field]: value } }));
+  const clearEdit = (sha) =>
+    setEdits((prev) => { const n = { ...prev }; delete n[sha]; return n; });
+  const clearAllEdits = () => {
+    setEdits({});
+    setSelected(new Set());
+    notify("Tutte le modifiche annullate");
   };
 
-  const toggleSelect = (sha) => {
-    setSelected((prev) => {
-      const n = new Set(prev);
-      n.has(sha) ? n.delete(sha) : n.add(sha);
-      return n;
-    });
-  };
-
-  const selectAll = () => {
-    if (selected.size === commits.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(commits.map((c) => c.sha)));
-    }
-  };
+  const toggleSelect = (sha) =>
+    setSelected((prev) => { const n = new Set(prev); n.has(sha) ? n.delete(sha) : n.add(sha); return n; });
+  const selectAll = () =>
+    setSelected(selected.size === commits.length ? new Set() : new Set(commits.map((c) => c.sha)));
 
   const applyBatch = () => {
     const newEdits = { ...edits };
     selected.forEach((sha) => {
-      const existing = newEdits[sha] || {};
-      if (batchValues.authorName) existing.authorName = batchValues.authorName;
-      if (batchValues.authorEmail) existing.authorEmail = batchValues.authorEmail;
-      if (batchValues.committerName) existing.committerName = batchValues.committerName;
-      if (batchValues.committerEmail) existing.committerEmail = batchValues.committerEmail;
-      newEdits[sha] = existing;
+      const ex = newEdits[sha] || {};
+      if (batchValues.authorName)    ex.authorName    = batchValues.authorName;
+      if (batchValues.authorEmail)   ex.authorEmail   = batchValues.authorEmail;
+      if (batchValues.committerName) ex.committerName = batchValues.committerName;
+      if (batchValues.committerEmail) ex.committerEmail = batchValues.committerEmail;
+      newEdits[sha] = ex;
     });
     setEdits(newEdits);
     setBatchMode(false);
@@ -504,23 +379,25 @@ export default function GitHistoryRewriter() {
     notify(`Batch applicato a ${selected.size} commit`, "success");
   };
 
-  const clearEdit = (sha) => {
-    setEdits((prev) => { const n = { ...prev }; delete n[sha]; return n; });
-  };
-
-  const clearAllEdits = () => {
-    setEdits({});
-    setSelected(new Set());
-    notify("Tutte le modifiche annullate");
-  };
-
   // — Script generation —
   const generateScript = () => {
-    const editedShas = Object.keys(edits).filter((sha) => {
-      const e = edits[sha];
-      return Object.values(e).some((v) => v && v.trim());
-    });
+    const editedShas = Object.keys(edits).filter(
+      (sha) => Object.values(edits[sha]).some((v) => v && v.trim())
+    );
     if (editedShas.length === 0) { notify("Nessuna modifica da applicare.", "info"); return; }
+
+    const authorChanges = [], messageChanges = [], dateChanges = [];
+    editedShas.forEach((sha) => {
+      const e = edits[sha];
+      const commit = commits.find((c) => c.sha === sha);
+      if (!commit) return;
+      if (e.authorName || e.authorEmail || e.committerName || e.committerEmail)
+        authorChanges.push({ sha, edit: e, commit });
+      if (e.message)
+        messageChanges.push({ sha, edit: e, commit });
+      if (e.authorDate || e.committerDate)
+        dateChanges.push({ sha, edit: e, commit });
+    });
 
     let script = `#!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
@@ -542,33 +419,14 @@ set -euo pipefail
 
 `;
 
-    const authorChanges = [];
-    const messageChanges = [];
-    const dateChanges = [];
-
-    editedShas.forEach((sha) => {
-      const e = edits[sha];
-      const commit = commits.find((c) => c.sha === sha);
-      if (!commit) return;
-      if (e.authorName || e.authorEmail || e.committerName || e.committerEmail) {
-        authorChanges.push({ sha, edit: e, commit });
-      }
-      if (e.message) {
-        messageChanges.push({ sha, edit: e, commit });
-      }
-      if (e.authorDate || e.committerDate) {
-        dateChanges.push({ sha, edit: e, commit });
-      }
-    });
-
     if (authorChanges.length > 0) {
       script += `# ─── Modifica Autori (via git-filter-repo --mailmap) ───────────\n\n`;
       script += `cat > /tmp/git-mailmap <<'MAILMAP'\n`;
       authorChanges.forEach(({ commit, edit }) => {
-        const origName = commit.commit.author.name;
+        const origName  = commit.commit.author.name;
         const origEmail = commit.commit.author.email;
-        const newName = edit.authorName || origName;
-        const newEmail = edit.authorEmail || origEmail;
+        const newName   = edit.authorName  || origName;
+        const newEmail  = edit.authorEmail || origEmail;
         script += `${newName} <${newEmail}> ${origName} <${origEmail}>\n`;
       });
       script += `MAILMAP\n\ngit filter-repo --mailmap /tmp/git-mailmap --force\n\n`;
@@ -587,11 +445,11 @@ set -euo pipefail
 
     if (dateChanges.length > 0) {
       script += `# ─── Modifica Date Commit (via git filter-branch) ─────────────\n`;
-      script += `# Nota: git-filter-repo non supporta nativamente date per commit specifici.\n`;
-      script += `# Usiamo git filter-branch per questo.\n\n`;
+      script += `# Nota: git-filter-repo non supporta nativamente date per singoli commit.\n`;
+      script += `# Usiamo git filter-branch come fallback.\n\n`;
       script += `git filter-branch -f --env-filter '\n`;
       dateChanges.forEach(({ sha, edit }) => {
-        const ad = edit.authorDate ? new Date(edit.authorDate).toISOString() : "";
+        const ad = edit.authorDate    ? new Date(edit.authorDate).toISOString()    : "";
         const cd = edit.committerDate ? new Date(edit.committerDate).toISOString() : "";
         script += `if [ "$GIT_COMMIT" = "${sha}" ]; then\n`;
         if (ad) script += `  export GIT_AUTHOR_DATE="${ad}"\n`;
@@ -601,7 +459,7 @@ set -euo pipefail
       script += `' -- --all\n\n`;
     }
 
-    script += `# ─── Force Push ───────────────────────────────────────────────\n`;
+    script += `# ─── Riepilogo ────────────────────────────────────────────────\n`;
     script += `echo ""\n`;
     script += `echo "✓ Riscrittura completata!"\n`;
     script += `echo "  Per applicare le modifiche al remote:"\n`;
@@ -619,189 +477,118 @@ set -euo pipefail
     notify("Script copiato negli appunti!", "success");
   };
 
-  // — Count edits —
   const editCount = Object.keys(edits).filter(
     (sha) => Object.values(edits[sha]).some((v) => v && v.trim())
   ).length;
 
-  // — Render —
-  const containerStyle = {
-    minHeight: "100vh",
-    background: colors.bg,
-    color: colors.text,
-    fontFamily: font.sans,
-    position: "relative",
-    overflow: "hidden",
-  };
-
-  const Notification = () =>
-    notification ? (
-      <div style={{
-        position: "fixed", top: 20, right: 20, zIndex: 9999,
-        padding: "12px 20px", borderRadius: 6,
-        background:
-          notification.type === "success" ? colors.successBg
-          : notification.type === "danger" ? colors.dangerBg
-          : colors.surface,
-        border: `1px solid ${
-          notification.type === "success" ? colors.success
-          : notification.type === "danger" ? colors.danger
-          : colors.border
-        }`,
-        color:
-          notification.type === "success" ? colors.success
-          : notification.type === "danger" ? colors.danger
-          : colors.text,
-        fontFamily: font.mono, fontSize: 13,
-        animation: "slideIn 0.3s ease",
-      }}>
-        {notification.msg}
-      </div>
-    ) : null;
-
-  // — AUTH VIEW —
-  if (view === "auth") return (
-    <div style={containerStyle}>
+  // — Layout shell —
+  const Shell = ({ children }) => (
+    <div style={{ minHeight: "100vh", background: colors.bg, color: colors.text, fontFamily: font.sans }}>
       <style>{globalStyles}</style>
-      <Notification />
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 20 }}>
-        <div style={{ width: "100%", maxWidth: 480, animation: "fadeUp 0.5s ease" }}>
-          <div style={{ textAlign: "center", marginBottom: 40 }}>
-            <div style={{ fontFamily: font.mono, fontSize: 11, color: colors.accent, letterSpacing: 4, textTransform: "uppercase", marginBottom: 8 }}>
-              git::rewriter
-            </div>
-            <h1 style={{ fontFamily: font.sans, fontSize: 28, fontWeight: 700, margin: 0, letterSpacing: "-0.5px" }}>
-              History <span style={{ color: colors.accent }}>Editor</span>
-            </h1>
-            <p style={{ color: colors.textDim, fontSize: 14, marginTop: 8, lineHeight: 1.5 }}>
-              Riscrivi autori, messaggi e date dei commit.<br />
-              Genera script git-filter-repo pronti all&rsquo;uso.
-            </p>
+      {notification && (
+        <div style={{
+          position: "fixed", top: 20, right: 20, zIndex: 9999,
+          padding: "12px 20px", borderRadius: 6,
+          background: notification.type === "success" ? colors.successBg : notification.type === "danger" ? colors.dangerBg : colors.surface,
+          border: `1px solid ${notification.type === "success" ? colors.success : notification.type === "danger" ? colors.danger : colors.border}`,
+          color: notification.type === "success" ? colors.success : notification.type === "danger" ? colors.danger : colors.text,
+          fontFamily: font.mono, fontSize: 13, animation: "slideIn 0.3s ease",
+        }}>
+          {notification.msg}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+
+  const Header = ({ crumbs = [], actions }) => (
+    <div style={{ padding: "12px 24px", borderBottom: `1px solid ${colors.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span
+          style={{ fontFamily: font.mono, fontSize: 12, color: colors.accent, letterSpacing: 2, textTransform: "uppercase", cursor: crumbs.length ? "pointer" : "default" }}
+          onClick={() => crumbs.length && setView("repos")}
+        >
+          git::rewriter
+        </span>
+        {crumbs.map((c, i) => (
+          <span key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ color: colors.textMuted }}>›</span>
+            <span style={{ fontFamily: font.mono, fontSize: 12, color: i === crumbs.length - 1 ? colors.text : colors.textDim }}>{c}</span>
+          </span>
+        ))}
+      </div>
+      {actions && <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>{actions}</div>}
+    </div>
+  );
+
+  // — LOADING VIEW —
+  if (view === "loading") return (
+    <Shell>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", flexDirection: "column", gap: 16 }}>
+        <Spinner />
+        <span style={{ fontFamily: font.mono, fontSize: 12, color: colors.textDim }}>Connessione al backend...</span>
+      </div>
+    </Shell>
+  );
+
+  // — ERROR VIEW —
+  if (view === "error") return (
+    <Shell>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24 }}>
+        <div style={{ maxWidth: 520, textAlign: "center" }}>
+          <div style={{ fontFamily: font.mono, fontSize: 11, color: colors.accent, letterSpacing: 4, textTransform: "uppercase", marginBottom: 16 }}>
+            git::rewriter
           </div>
-
-          {/* Tabs */}
-          <div style={{ display: "flex", gap: 0, marginBottom: 24, borderBottom: `1px solid ${colors.border}` }}>
-            {[["pat", "Personal Access Token"], ["oauth", "OAuth Device Flow"]].map(([key, label]) => (
-              <button key={key} onClick={() => setAuthTab(key)} style={{
-                flex: 1, padding: "10px 0", background: "transparent", border: "none",
-                borderBottom: `2px solid ${authTab === key ? colors.accent : "transparent"}`,
-                color: authTab === key ? colors.accent : colors.textDim,
-                fontFamily: font.mono, fontSize: 11,
-                cursor: "pointer", textTransform: "uppercase", letterSpacing: 1, transition: "all 0.15s",
-              }}>
-                {label}
-              </button>
-            ))}
+          <div style={{ padding: 20, background: colors.dangerBg, border: `1px solid ${colors.danger}`, borderRadius: 6, color: colors.danger, fontFamily: font.mono, fontSize: 13, lineHeight: 1.7, textAlign: "left" }}>
+            {error}
           </div>
-
-          {authTab === "pat" ? (
-            <div style={{ animation: "fadeUp 0.3s ease" }}>
-              <label style={{ fontFamily: font.mono, fontSize: 11, color: colors.textDim, letterSpacing: 1, textTransform: "uppercase", display: "block", marginBottom: 8 }}>
-                GitHub Token
-              </label>
-              <Input value={token} onChange={setToken} placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" type="password" />
-              <p style={{ fontSize: 11, color: colors.textMuted, marginTop: 8, lineHeight: 1.6 }}>
-                Crea un token su{" "}
-                <span style={{ color: colors.accent }}>github.com/settings/tokens</span> con scope{" "}
-                <code style={{ background: colors.surface, padding: "1px 5px", borderRadius: 3 }}>repo</code>
-              </p>
-              <Btn variant="accent" onClick={loginPAT} disabled={loading || !token.trim()} style={{ width: "100%", marginTop: 16, padding: "12px" }}>
-                {loading ? "Connessione..." : "Connetti"}
-              </Btn>
-            </div>
-          ) : (
-            <div style={{ animation: "fadeUp 0.3s ease" }}>
-              {!oauthStep ? (
-                <>
-                  <label style={{ fontFamily: font.mono, fontSize: 11, color: colors.textDim, letterSpacing: 1, textTransform: "uppercase", display: "block", marginBottom: 8 }}>
-                    OAuth App Client ID
-                  </label>
-                  <Input value={oauthClientId} onChange={setOauthClientId} placeholder="Iv1.xxxxxxxxx" />
-                  <p style={{ fontSize: 11, color: colors.textMuted, marginTop: 8, lineHeight: 1.6 }}>
-                    Registra una OAuth App su{" "}
-                    <span style={{ color: colors.accent }}>github.com/settings/developers</span> e abilita il Device Flow.
-                  </p>
-                  <div style={{ marginTop: 12, padding: 12, background: colors.surface, borderRadius: 4, border: `1px solid ${colors.border}` }}>
-                    <p style={{ fontSize: 11, color: colors.textDim, margin: 0, lineHeight: 1.6 }}>
-                      <span style={{ color: colors.accent }}>⚠</span> Il Device Flow di GitHub potrebbe richiedere un proxy CORS per funzionare dal browser. In alternativa, usa un PAT.
-                    </p>
-                  </div>
-                  <Btn variant="accent" onClick={startOAuth} disabled={loading || !oauthClientId.trim()} style={{ width: "100%", marginTop: 16, padding: "12px" }}>
-                    {loading ? "Avvio..." : "Avvia OAuth Flow"}
-                  </Btn>
-                </>
-              ) : (
-                <div style={{ textAlign: "center", padding: 20 }}>
-                  <div style={{ fontFamily: font.mono, fontSize: 11, color: colors.textDim, marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
-                    Inserisci questo codice su github.com
-                  </div>
-                  <div style={{
-                    fontFamily: font.mono, fontSize: 32, fontWeight: 700, color: colors.accent,
-                    padding: "16px 24px", background: colors.surface, borderRadius: 8,
-                    border: `2px solid ${colors.accent}`, display: "inline-block", letterSpacing: 4,
-                  }}>
-                    {deviceCode?.user_code || "..."}
-                  </div>
-                  <p style={{ marginTop: 16 }}>
-                    <a
-                      href={deviceCode?.verification_uri || "https://github.com/login/device"}
-                      target="_blank" rel="noreferrer"
-                      style={{ color: colors.accent, fontFamily: font.mono, fontSize: 13 }}
-                    >
-                      → github.com/login/device
-                    </a>
-                  </p>
-                  <div style={{ marginTop: 16, color: colors.textDim, fontSize: 12, animation: "pulse 2s infinite" }}>
-                    In attesa di autorizzazione...
-                  </div>
-                  <Btn variant="danger" onClick={() => { clearInterval(pollRef.current); setOauthStep(null); }} style={{ marginTop: 16 }}>
-                    Annulla
-                  </Btn>
-                </div>
-              )}
-            </div>
-          )}
-
-          {error && (
-            <div style={{ marginTop: 16, padding: 12, background: colors.dangerBg, border: `1px solid ${colors.danger}`, borderRadius: 4, color: colors.danger, fontSize: 12, fontFamily: font.mono }}>
-              {error}
-            </div>
-          )}
+          <p style={{ color: colors.textMuted, fontSize: 12, marginTop: 16, fontFamily: font.mono, lineHeight: 1.8 }}>
+            1. Copia <code style={{ color: colors.accent }}>.env.example</code> in <code style={{ color: colors.accent }}>.env</code><br />
+            2. Imposta <code style={{ color: colors.accent }}>GITHUB_TOKEN</code><br />
+            3. Avvia il backend: <code style={{ color: colors.accent }}>npm run server</code>
+          </p>
         </div>
       </div>
-    </div>
+    </Shell>
   );
 
   // — REPOS VIEW —
   if (view === "repos") return (
-    <div style={containerStyle}>
-      <style>{globalStyles}</style>
-      <Notification />
-      <div style={{ padding: "16px 24px", borderBottom: `1px solid ${colors.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontFamily: font.mono, fontSize: 12, color: colors.accent, letterSpacing: 2, textTransform: "uppercase" }}>git::rewriter</span>
-          <span style={{ color: colors.textMuted }}>›</span>
-          <span style={{ fontFamily: font.mono, fontSize: 12, color: colors.textDim }}>repositories</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontFamily: font.mono, fontSize: 11, color: colors.textDim }}>@{user?.login}</span>
-          <Btn variant="danger" onClick={() => { setAuthed(false); setToken(""); setView("auth"); setUser(null); }}>Logout</Btn>
-        </div>
-      </div>
-
+    <Shell>
+      <Header
+        crumbs={["repositories"]}
+        actions={
+          user && (
+            <span style={{ fontFamily: font.mono, fontSize: 11, color: colors.textDim, padding: "4px 10px", background: colors.surface, borderRadius: 3, border: `1px solid ${colors.border}` }}>
+              @{user.login}
+            </span>
+          )
+        }
+      />
       <div style={{ maxWidth: 800, margin: "0 auto", padding: "24px 20px" }}>
         <h2 style={{ fontFamily: font.sans, fontSize: 22, fontWeight: 700, margin: "0 0 20px 0" }}>
           Seleziona un <span style={{ color: colors.accent }}>Repository</span>
         </h2>
-
         <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-          <Input value={repoSearch} onChange={setRepoSearch} placeholder="Cerca repository..." style={{ flex: 1 }} />
-          <Btn variant="accent" onClick={searchRepos}>Cerca</Btn>
+          <Input
+            value={repoSearch}
+            onChange={setRepoSearch}
+            placeholder="Cerca repository..."
+            style={{ flex: 1 }}
+          />
+          <Btn variant="accent" onClick={searchRepos} disabled={loading}>Cerca</Btn>
+          {repoSearch && <Btn onClick={() => { setRepoSearch(""); loadRepos(); }}>✕</Btn>}
         </div>
 
         {loading && (
-          <div style={{ textAlign: "center", padding: 40, fontFamily: font.mono, fontSize: 12, color: colors.textDim }}>
-            Caricamento...
+          <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+            <Spinner />
+          </div>
+        )}
+
+        {error && (
+          <div style={{ marginBottom: 16, padding: 12, background: colors.dangerBg, border: `1px solid ${colors.danger}`, borderRadius: 4, color: colors.danger, fontSize: 12, fontFamily: font.mono }}>
+            {error}
           </div>
         )}
 
@@ -813,7 +600,7 @@ set -euo pipefail
               style={{
                 padding: "14px 16px", background: colors.surface, borderRadius: 4,
                 border: `1px solid ${colors.border}`, cursor: "pointer",
-                transition: "all 0.15s", animation: `fadeUp 0.3s ease ${i * 30}ms both`,
+                transition: "all 0.15s", animation: `fadeUp 0.3s ease ${Math.min(i * 25, 400)}ms both`,
                 display: "flex", justifyContent: "space-between", alignItems: "center",
               }}
               onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.borderFocus; e.currentTarget.style.background = colors.surfaceHover; }}
@@ -836,9 +623,7 @@ set -euo pipefail
                     {r.language}
                   </span>
                 )}
-                <span style={{ fontFamily: font.mono, fontSize: 10, color: colors.textMuted }}>
-                  {r.private ? "🔒" : "🌐"}
-                </span>
+                <span style={{ fontFamily: font.mono, fontSize: 10, color: colors.textMuted }}>{r.private ? "🔒" : "🌐"}</span>
                 <span style={{ color: colors.accent, fontSize: 14 }}>→</span>
               </div>
             </div>
@@ -851,85 +636,64 @@ set -euo pipefail
           </div>
         )}
       </div>
-    </div>
+    </Shell>
   );
 
   // — SCRIPT VIEW —
   if (view === "script") return (
-    <div style={containerStyle}>
-      <style>{globalStyles}</style>
-      <Notification />
-      <div style={{ padding: "16px 24px", borderBottom: `1px solid ${colors.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontFamily: font.mono, fontSize: 12, color: colors.accent, letterSpacing: 2, textTransform: "uppercase" }}>git::rewriter</span>
-          <span style={{ color: colors.textMuted }}>›</span>
-          <span style={{ fontFamily: font.mono, fontSize: 12, color: colors.textDim }}>{selectedRepo?.name}</span>
-          <span style={{ color: colors.textMuted }}>›</span>
-          <span style={{ fontFamily: font.mono, fontSize: 12, color: colors.text }}>script</span>
-        </div>
-        <Btn onClick={() => setView("editor")}>← Torna all&rsquo;Editor</Btn>
-      </div>
-
+    <Shell>
+      <Header
+        crumbs={[selectedRepo?.name, "script"]}
+        actions={
+          <>
+            <Btn onClick={() => setView("editor")}>← Editor</Btn>
+            <Btn variant="accent" onClick={copyScript}>Copia Script</Btn>
+          </>
+        }
+      />
       <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 20px", animation: "fadeUp 0.4s ease" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ fontFamily: font.sans, fontSize: 22, fontWeight: 700, margin: 0 }}>
-            Script <span style={{ color: colors.accent }}>Generato</span>
-          </h2>
-          <Btn variant="accent" onClick={copyScript}>Copia Script</Btn>
-        </div>
-        <div style={{
-          background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 6,
-          padding: 20, overflow: "auto", maxHeight: "calc(100vh - 180px)",
-        }}>
+        <h2 style={{ fontFamily: font.sans, fontSize: 22, fontWeight: 700, margin: "0 0 16px 0" }}>
+          Script <span style={{ color: colors.accent }}>Generato</span>
+        </h2>
+        <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 6, padding: 20, overflow: "auto", maxHeight: "calc(100vh - 180px)" }}>
           <pre style={{ fontFamily: font.mono, fontSize: 12, color: colors.text, margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>
             {scriptGenerated}
           </pre>
         </div>
       </div>
-    </div>
+    </Shell>
   );
 
   // — EDITOR VIEW —
   return (
-    <div style={containerStyle}>
-      <style>{globalStyles}</style>
-      <Notification />
+    <Shell>
+      <Header
+        crumbs={[selectedRepo?.name]}
+        actions={
+          <>
+            <select
+              value={selectedBranch}
+              onChange={(e) => changeBranch(e.target.value)}
+              style={{ padding: "6px 10px", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.text, fontFamily: font.mono, fontSize: 11, cursor: "pointer", outline: "none" }}
+            >
+              {branches.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
+            </select>
 
-      {/* Header */}
-      <div style={{ padding: "12px 24px", borderBottom: `1px solid ${colors.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span
-            style={{ fontFamily: font.mono, fontSize: 12, color: colors.accent, letterSpacing: 2, textTransform: "uppercase", cursor: "pointer" }}
-            onClick={() => { setView("repos"); setSelectedRepo(null); }}
-          >
-            git::rewriter
-          </span>
-          <span style={{ color: colors.textMuted }}>›</span>
-          <span style={{ fontFamily: font.mono, fontSize: 12, color: colors.text, fontWeight: 600 }}>{selectedRepo?.name}</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <select value={selectedBranch} onChange={(e) => changeBranch(e.target.value)} style={{
-            padding: "6px 10px", background: colors.surface, border: `1px solid ${colors.border}`,
-            borderRadius: 4, color: colors.text, fontFamily: font.mono, fontSize: 11, cursor: "pointer", outline: "none",
-          }}>
-            {branches.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
-          </select>
+            <div style={{ width: 1, height: 20, background: colors.border }} />
 
-          <div style={{ width: 1, height: 20, background: colors.border, margin: "0 4px" }} />
-
-          {editCount > 0 && (
-            <span style={{ fontFamily: font.mono, fontSize: 11, color: colors.accent, background: colors.accentGlow, padding: "4px 10px", borderRadius: 3 }}>
-              {editCount} modific{editCount === 1 ? "a" : "he"}
-            </span>
-          )}
-
-          <Btn onClick={() => setBatchMode(!batchMode)} disabled={selected.size === 0}>
-            Batch {selected.size > 0 ? `(${selected.size})` : ""}
-          </Btn>
-          <Btn variant="danger" onClick={clearAllEdits} disabled={editCount === 0}>Reset</Btn>
-          <Btn variant="accent" onClick={generateScript} disabled={editCount === 0}>Genera Script</Btn>
-        </div>
-      </div>
+            {editCount > 0 && (
+              <span style={{ fontFamily: font.mono, fontSize: 11, color: colors.accent, background: colors.accentGlow, padding: "4px 10px", borderRadius: 3 }}>
+                {editCount} modific{editCount === 1 ? "a" : "he"}
+              </span>
+            )}
+            <Btn onClick={() => setBatchMode(!batchMode)} disabled={selected.size === 0}>
+              Batch{selected.size > 0 ? ` (${selected.size})` : ""}
+            </Btn>
+            <Btn variant="danger" onClick={clearAllEdits} disabled={editCount === 0}>Reset</Btn>
+            <Btn variant="accent" onClick={generateScript} disabled={editCount === 0}>Genera Script</Btn>
+          </>
+        }
+      />
 
       {/* Batch panel */}
       {batchMode && selected.size > 0 && (
@@ -941,30 +705,24 @@ set -euo pipefail
             <Btn onClick={() => setBatchMode(false)} style={{ padding: "4px 10px" }}>Chiudi</Btn>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
-            <div>
-              <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Author Name</label>
-              <Input value={batchValues.authorName} onChange={(v) => setBatchValues((p) => ({ ...p, authorName: v }))} placeholder="Nome autore" />
-            </div>
-            <div>
-              <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Author Email</label>
-              <Input value={batchValues.authorEmail} onChange={(v) => setBatchValues((p) => ({ ...p, authorEmail: v }))} placeholder="email@example.com" />
-            </div>
-            <div>
-              <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Committer Name</label>
-              <Input value={batchValues.committerName} onChange={(v) => setBatchValues((p) => ({ ...p, committerName: v }))} placeholder="Nome committer" />
-            </div>
-            <div>
-              <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Committer Email</label>
-              <Input value={batchValues.committerEmail} onChange={(v) => setBatchValues((p) => ({ ...p, committerEmail: v }))} placeholder="email@example.com" />
-            </div>
+            {[
+              ["authorName",    "Author Name",    "Nome autore"],
+              ["authorEmail",   "Author Email",   "email@example.com"],
+              ["committerName", "Committer Name", "Nome committer"],
+              ["committerEmail","Committer Email","email@example.com"],
+            ].map(([field, label, ph]) => (
+              <div key={field}>
+                <label style={{ fontFamily: font.mono, fontSize: 9, color: colors.textDim, textTransform: "uppercase", letterSpacing: 1 }}>{label}</label>
+                <Input value={batchValues[field]} onChange={(v) => setBatchValues((p) => ({ ...p, [field]: v }))} placeholder={ph} />
+              </div>
+            ))}
             <Btn variant="accent" onClick={applyBatch}>Applica</Btn>
           </div>
         </div>
       )}
 
       {/* Commit list */}
-      <div style={{ padding: "0 12px", maxHeight: batchMode ? "calc(100vh - 220px)" : "calc(100vh - 110px)", overflowY: "auto" }}>
-        {/* Select all bar */}
+      <div style={{ padding: "0 12px", maxHeight: batchMode ? "calc(100vh - 220px)" : "calc(100vh - 60px)", overflowY: "auto" }}>
         <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, borderBottom: `1px solid ${colors.border}`, position: "sticky", top: 0, background: colors.bg, zIndex: 10 }}>
           <input
             type="checkbox"
@@ -975,17 +733,17 @@ set -euo pipefail
           <span style={{ fontFamily: font.mono, fontSize: 10, color: colors.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
             {commits.length} commit · {selectedBranch}
           </span>
+          {loading && <Spinner />}
         </div>
 
         {commits.map((c) => {
           const edit = getEdit(c.sha);
           const hasEdit = Object.values(edit).some((v) => v && v.trim());
-          const isSelected = selected.has(c.sha);
           return (
             <CommitRow
               key={c.sha}
               c={c}
-              isSelected={isSelected}
+              isSelected={selected.has(c.sha)}
               hasEdit={hasEdit}
               edit={edit}
               onToggleSelect={toggleSelect}
@@ -995,11 +753,9 @@ set -euo pipefail
           );
         })}
 
-        {hasMore && (
+        {hasMore && !loading && (
           <div style={{ padding: 16, textAlign: "center" }}>
-            <Btn onClick={() => loadCommits(null, null, page + 1)} disabled={loading}>
-              {loading ? "Caricamento..." : "Carica altri commit"}
-            </Btn>
+            <Btn onClick={() => loadCommits(null, null, page + 1)}>Carica altri commit</Btn>
           </div>
         )}
 
@@ -1015,6 +771,6 @@ set -euo pipefail
           {error}
         </div>
       )}
-    </div>
+    </Shell>
   );
 }
