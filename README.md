@@ -1,141 +1,204 @@
-# git::rewriter — History Editor
+# Git UI Toolbox
 
-Visual tool to rewrite git history. Browse your GitHub repos, edit commit authors, messages, and dates through a dark-mode UI, then generate ready-to-run `git-filter-repo` / `git filter-branch` scripts.
+A collection of browser-based tools for Git power users — visual interfaces for operations that would otherwise require arcane command-line incantations.
 
-## Features
+Each tool in the toolbox is self-contained, works against the GitHub API, and outputs portable shell scripts you can inspect, version, and run locally. No magic, no black boxes: the UI does the thinking, the script does the work.
 
-- **GitHub auth** — PAT (instant) or OAuth (Authorization Code flow)
-- **Repo browser** — search and browse all your repos
-- **Commit editor** — per-commit editing of author, committer, message, dates
-- **Batch operations** — select multiple commits and apply changes in bulk
-- **Script generation** — generates bash scripts using `git-filter-repo` (mailmap + callbacks) and `git filter-branch` (dates)
-- **Pagination** — lazy-loads commits 30 at a time
+> **Current tool**: [git::rewriter](#gitrewriter--history-editor) — rewrite commit authors, messages, and dates across any branch.
 
-## Quick Start
+---
+
+## Architecture
+
+```
+Browser (React, zero credentials)
+        │
+        │  /api/*
+        ▼
+Express backend  ──►  GitHub API
+  (GITHUB_TOKEN)
+```
+
+The frontend is a fully public static app. All GitHub API calls are proxied through a lightweight Express backend that holds the token server-side. Credentials never reach the browser.
+
+---
+
+## Tools
+
+### git::rewriter — History Editor
+
+Rewrite the history of any repository you have access to, then export a ready-to-run bash script that applies the changes via `git-filter-repo`.
+
+**What you can edit per commit:**
+
+| Field | Description |
+|---|---|
+| Author name & email | Change who is recorded as the commit author |
+| Committer name & email | Change the committer identity (often the same as author) |
+| Author date | Redate when the change was authored |
+| Committer date | Redate when the commit was applied |
+| Commit message | Rewrite the message body |
+
+**Batch mode**: select any number of commits and apply the same author/email values to all of them at once — useful for consolidating identities across a repository's entire history.
+
+**Script output**: the tool generates a commented bash script using `git-filter-repo` (falling back to `git filter-branch` for per-commit date changes). You copy it, run it locally on your clone, then force-push. The web UI never touches your repository directly.
+
+---
+
+## Project Structure
+
+```
+git-UI-toolbix/
+├── .github/
+│   └── workflows/
+│       └── deploy.yml        # GitHub Pages CI/CD
+├── server/
+│   └── index.js              # Express backend — GitHub API proxy
+├── src/
+│   ├── App.jsx
+│   └── GitHistoryRewriter.jsx
+├── .env.example              # Environment variable template
+├── vite.config.js            # Dev proxy: /api → localhost:3001
+└── package.json
+```
+
+---
+
+## Setup
+
+### Prerequisites
+
+- Node.js 18+
+- A GitHub Personal Access Token ([create one](https://github.com/settings/tokens)) with the **`repo`** scope (or `public_repo` if you only need public repositories)
+
+### 1. Clone and install
 
 ```bash
 npm install
+```
+
+### 2. Configure the backend
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+# GitHub Personal Access Token with `repo` scope
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+
+# Port for the Express backend (default: 3001)
+PORT=3001
+```
+
+### 3. Start
+
+Open two terminals:
+
+```bash
+# Terminal 1 — Express backend (holds the token, proxies GitHub API)
+npm run server
+
+# Terminal 2 — Vite dev server (proxies /api → localhost:3001 automatically)
 npm run dev
 ```
 
-Open `http://localhost:5173/git-UI-toolbox/` and authenticate with a GitHub PAT.
+Open [http://localhost:5173](http://localhost:5173).
 
-## Deploy to GitHub Pages
+---
 
-Push to `main` — the included GitHub Actions workflow builds and deploys automatically.
+## Applying the generated script
 
-**Requirements:**
-1. Go to repo **Settings → Pages → Source** and select **GitHub Actions**
-2. The workflow at `.github/workflows/deploy.yml` handles the rest
-
-## Authentication
-
-### Option A: Personal Access Token (recommended for quick use)
-
-1. Go to [github.com/settings/tokens](https://github.com/settings/tokens)
-2. Create a token with `repo` scope
-3. Paste it in the app
-
-### Option B: OAuth (for production / shared use)
-
-OAuth requires a small server-side component to exchange the authorization code for an access token (GitHub blocks direct browser requests to their token endpoint via CORS).
-
-#### 1. Register an OAuth App
-
-- Go to [github.com/settings/developers](https://github.com/settings/developers)
-- **New OAuth App**
-- Set **Authorization callback URL** to your deployed app URL:
-  ```
-  https://heartran.github.io/git-UI-toolbox/
-  ```
-- Note the **Client ID**
-
-#### 2. Deploy a Token Exchange Proxy
-
-The simplest option is a **Cloudflare Worker** (free tier is plenty):
-
-```javascript
-// worker.js — Cloudflare Worker for GitHub OAuth token exchange
-export default {
-  async fetch(request, env) {
-    // CORS preflight
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': 'https://heartran.github.io',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        },
-      });
-    }
-
-    if (request.method !== 'POST') {
-      return new Response('Method not allowed', { status: 405 });
-    }
-
-    const { client_id, code } = await request.json();
-
-    const res = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        client_id,
-        client_secret: env.GITHUB_CLIENT_SECRET, // Set as Worker secret
-        code,
-      }),
-    });
-
-    const data = await res.json();
-
-    return new Response(JSON.stringify(data), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': 'https://heartran.github.io',
-      },
-    });
-  },
-};
-```
-
-Deploy it:
-```bash
-npx wrangler deploy worker.js --name gh-oauth-proxy
-npx wrangler secret put GITHUB_CLIENT_SECRET
-```
-
-#### 3. Configure in the app
-
-Enter the **Client ID** and the **Worker URL** (e.g. `https://gh-oauth-proxy.your-subdomain.workers.dev`) in the OAuth tab.
-
-## How It Works
-
-The app does **not** modify your repository directly. Instead:
-
-1. You browse commits via the GitHub API
-2. You edit metadata through the UI
-3. The app generates a bash script that uses:
-   - `git-filter-repo --mailmap` for author/committer changes
-   - `git-filter-repo --message-callback` for commit messages
-   - `git filter-branch --env-filter` for date changes
-4. You run the script locally on your cloned repo
-5. You `git push --force-with-lease` when ready
-
-### Prerequisites for running generated scripts
+The generated script requires [`git-filter-repo`](https://github.com/newren/git-filter-repo):
 
 ```bash
 pip install git-filter-repo
 ```
 
-## Tech Stack
+Run it inside your **local clone** of the target repository:
+
+```bash
+chmod +x rewrite.sh
+./rewrite.sh
+```
+
+Then push the rewritten history:
+
+```bash
+npx wrangler deploy worker.js --name gh-oauth-proxy
+npx wrangler secret put GITHUB_CLIENT_SECRET
+```
+
+> **Warning**: force-pushing rewrites public history permanently. Make sure you have a backup and coordinate with your team before proceeding. Collaborators will need to re-clone or rebase onto the new history.
+
+---
+
+## Deployment
+
+### Frontend — GitHub Pages
+
+The frontend builds to a static bundle and can be hosted anywhere. A GitHub Actions workflow is included.
+
+**1. Set the Vite base path** in `vite.config.js` to match your repository name:
+
+```js
+base: '/git-UI-toolbix/',
+```
+
+**2. Add the repository secret** (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|---|---|
+| `VITE_API_BASE` | Full HTTPS URL of your deployed backend, e.g. `https://api.example.com` |
+
+**3. Enable GitHub Pages** in repository settings: Source → **GitHub Actions**.
+
+Push to `main` — the workflow in `.github/workflows/deploy.yml` will build and deploy automatically.
+
+### Backend — any Node.js host
+
+The backend is a plain Express app with no database and no state. It can be deployed to Railway, Render, Fly.io, a VPS, or any platform that runs Node.js.
+
+Required environment variables:
+
+| Variable | Description |
+|---|---|
+| `GITHUB_TOKEN` | GitHub PAT with `repo` scope |
+| `PORT` | Port to listen on (default: `3001`) |
+
+For production, restrict the `cors()` origin in `server/index.js` to your frontend domain.
+
+---
+
+## Security
+
+- `GITHUB_TOKEN` lives exclusively in the backend process — never in the built assets, never sent to the browser.
+- The generated bash scripts contain repository metadata (commit SHAs, author names) but no credentials.
+- The frontend is fully auditable: it is a static React app with no hidden network calls.
+
+---
+
+## Roadmap
+
+Git UI Toolbox is designed to grow. Planned tools:
+
+- **git::blame-explorer** — visualise blame across file history with author filtering
+- **git::conflict-resolver** — side-by-side merge conflict resolution UI
+- **git::tag-manager** — create, annotate, delete, and push tags across repositories
+- **git::branch-cleaner** — bulk-delete merged or stale branches with preview
+
+Contributions and tool proposals are welcome — open an issue to discuss.
 
 - React 18 + Vite 6
 - Zero external UI dependencies
 - GitHub REST API v3
 - Deployed via GitHub Actions → GitHub Pages
 
-## License
+## Contributing
 
-MIT
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feat/your-tool`
+3. Follow the existing code style (React functional components, inline styles with the shared design tokens in `GitHistoryRewriter.jsx`)
+4. Open a pull request describing what the tool does and why it belongs in the toolbox
