@@ -141,18 +141,22 @@ export default function Editor({ token, repo, onBack, notify }) {
   useEffect(() => {
     (async () => {
       try {
-        const b = await ghFetch(`/repos/${repo.full_name}/branches?per_page=100`, token);
+        const owner = repo.owner?.login;
+        const name = repo.name;
+        const b = await ghFetch(`/repos/${owner}/${name}/branches`, token);
         setBranches(b);
       } catch {}
     })();
-  }, [repo.full_name, token]);
+  }, [repo, token]);
 
   // Load commits
   const loadCommits = useCallback(async (br, pg, reset) => {
     setLoading(true);
     try {
+      const owner = repo.owner?.login;
+      const name = repo.name;
       const c = await ghFetch(
-        `/repos/${repo.full_name}/commits?sha=${encodeURIComponent(br)}&per_page=30&page=${pg}`,
+        `/repos/${owner}/${name}/commits?sha=${encodeURIComponent(br)}&page=${pg}`,
         token
       );
       setCommits((prev) => reset ? c : [...prev, ...c]);
@@ -160,7 +164,7 @@ export default function Editor({ token, repo, onBack, notify }) {
       setPage(pg);
     } catch {}
     setLoading(false);
-  }, [repo.full_name, token]);
+  }, [repo, token]);
 
   useEffect(() => { loadCommits(branch, 1, true); }, [branch, loadCommits]);
 

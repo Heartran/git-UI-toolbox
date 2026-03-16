@@ -28,53 +28,27 @@ export const FONT = {
 };
 
 // ═══════════════════════════════════════════════════
-// GitHub API
+// API
 // ═══════════════════════════════════════════════════
 
-const GH = 'https://api.github.com';
-
 export async function ghFetch(path, token, opts = {}) {
-  const res = await fetch(`${GH}${path}`, {
+  // Backend proxy: use /api/* endpoints
+  // Token is stored for session persistence but authentication is handled server-side
+  const apiPath = path.startsWith('/api/') ? path : `/api${path}`;
+  const res = await fetch(apiPath, {
     ...opts,
     headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
+      Accept: 'application/json',
       ...(opts.headers || {}),
     },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `GitHub ${res.status}`);
+    throw new Error(body.message || `API ${res.status}`);
   }
   return res.json();
 }
 
-// OAuth helpers
-export const OAUTH_SCOPES = 'repo';
-
-export function buildOAuthUrl(clientId, redirectUri) {
-  const state = crypto.randomUUID();
-  sessionStorage.setItem('oauth_state', state);
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    scope: OAUTH_SCOPES,
-    state,
-  });
-  return `https://github.com/login/oauth/authorize?${params}`;
-}
-
-export async function exchangeOAuthCode(proxyUrl, clientId, code) {
-  const res = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ client_id: clientId, code }),
-  });
-  if (!res.ok) throw new Error('Token exchange failed');
-  const data = await res.json();
-  if (data.error) throw new Error(data.error_description || data.error);
-  return data.access_token;
-}
 
 // ═══════════════════════════════════════════════════
 // Utility

@@ -10,10 +10,7 @@ export default function Repos({ token, user, onSelect, onLogout }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await ghFetch(
-        '/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member',
-        token
-      );
+      const r = await ghFetch('/repos', token);
       setRepos(r);
     } catch {}
     setLoading(false);
@@ -26,10 +23,10 @@ export default function Repos({ token, user, onSelect, onLogout }) {
     setLoading(true);
     try {
       const r = await ghFetch(
-        `/search/repositories?q=${encodeURIComponent(search)}+user:${user.login}&per_page=30`,
+        `/repos/search?q=${encodeURIComponent(search)}&login=${user.login}`,
         token
       );
-      setRepos(r.items || []);
+      setRepos(r || []);
     } catch {}
     setLoading(false);
   };

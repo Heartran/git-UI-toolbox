@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { C, FONT, ghFetch, exchangeOAuthCode } from './lib';
+import { C, FONT, ghFetch } from './lib';
 import { Notification } from './components/UI';
 import Auth from './components/Auth';
 import Repos from './components/Repos';
@@ -28,7 +28,7 @@ export default function App() {
   // ─── Authenticate with token ─────────────────
   const authenticate = useCallback(async (tk) => {
     try {
-      const u = await ghFetch('/user', tk);
+      const u = await ghFetch('/api/user', tk);
       setToken(tk);
       setUser(u);
       sessionStorage.setItem('gh_token', tk);
@@ -41,47 +41,17 @@ export default function App() {
     }
   }, [notify]);
 
-  // ─── Handle OAuth callback on mount ──────────
+  // ─── Extract token from URL (backend OAuth callback) ──
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const state = params.get('state');
-    const storedState = sessionStorage.getItem('oauth_state');
+    const tokenFromUrl = params.get('token');
 
-    if (code && state) {
+    if (tokenFromUrl) {
       // Clean URL
       window.history.replaceState({}, '', window.location.pathname);
-
-      if (state !== storedState) {
-        setError('OAuth state mismatch — possibile attacco CSRF. Riprova.');
-        localStorage.removeItem('gh_oauth_client_id');
-        localStorage.removeItem('gh_oauth_proxy');
-        return;
-      }
-
-      sessionStorage.removeItem('oauth_state');
-      const clientId = localStorage.getItem('gh_oauth_client_id');
-      const proxyUrl = localStorage.getItem('gh_oauth_proxy');
-
-      if (!clientId || !proxyUrl) {
-        setError('Client ID o Proxy URL mancanti. Riconfigura OAuth.');
-        localStorage.removeItem('gh_oauth_client_id');
-        localStorage.removeItem('gh_oauth_proxy');
-        return;
-      }
-
       setOauthLoading(true);
-      exchangeOAuthCode(proxyUrl, clientId, code)
-        .then((tk) => {
-          localStorage.removeItem('gh_oauth_client_id');
-          localStorage.removeItem('gh_oauth_proxy');
-          return authenticate(tk);
-        })
-        .catch((e) => {
-          setError(`OAuth fallito: ${e.message}`);
-          localStorage.removeItem('gh_oauth_client_id');
-          localStorage.removeItem('gh_oauth_proxy');
-        })
+      authenticate(tokenFromUrl)
+        .catch(() => setError('Token validation failed'))
         .finally(() => setOauthLoading(false));
     }
   }, [authenticate]);
@@ -95,14 +65,6 @@ export default function App() {
       });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Auth handler ────────────────────────────
-  const handleAuth = async ({ type, token: tk }) => {
-    setError('');
-    if (type === 'pat') {
-      try { await authenticate(tk); } catch {}
-    }
-  };
 
   const handleLogout = () => {
     setToken('');
@@ -141,7 +103,7 @@ export default function App() {
         </div>
       )}
 
-      {view === 'auth' && <Auth onAuth={handleAuth} error={error} />}
+      {view === 'auth' && <Auth error={error} />}
       {view === 'repos' && <Repos token={token} user={user} onSelect={selectRepo} onLogout={handleLogout} />}
       {view === 'editor' && repo && (
         <Editor token={token} repo={repo} onBack={backToRepos} notify={notify} />
