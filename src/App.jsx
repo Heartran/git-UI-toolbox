@@ -54,6 +54,8 @@ export default function App() {
 
       if (state !== storedState) {
         setError('OAuth state mismatch — possibile attacco CSRF. Riprova.');
+        localStorage.removeItem('gh_oauth_client_id');
+        localStorage.removeItem('gh_oauth_proxy');
         return;
       }
 
@@ -63,13 +65,23 @@ export default function App() {
 
       if (!clientId || !proxyUrl) {
         setError('Client ID o Proxy URL mancanti. Riconfigura OAuth.');
+        localStorage.removeItem('gh_oauth_client_id');
+        localStorage.removeItem('gh_oauth_proxy');
         return;
       }
 
       setOauthLoading(true);
       exchangeOAuthCode(proxyUrl, clientId, code)
-        .then((tk) => authenticate(tk))
-        .catch((e) => setError(`OAuth fallito: ${e.message}`))
+        .then((tk) => {
+          localStorage.removeItem('gh_oauth_client_id');
+          localStorage.removeItem('gh_oauth_proxy');
+          return authenticate(tk);
+        })
+        .catch((e) => {
+          setError(`OAuth fallito: ${e.message}`);
+          localStorage.removeItem('gh_oauth_client_id');
+          localStorage.removeItem('gh_oauth_proxy');
+        })
         .finally(() => setOauthLoading(false));
     }
   }, [authenticate]);
