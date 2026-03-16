@@ -137,46 +137,72 @@ npx wrangler secret put GITHUB_CLIENT_SECRET
 
 ## Deployment
 
-### Frontend — GitHub Pages
+### 1. Create GitHub OAuth App
 
-The frontend builds to a static bundle and can be hosted anywhere. A GitHub Actions workflow is included.
+Before deploying, register an OAuth App on GitHub:
 
-**1. Set the Vite base path** in `vite.config.js` to match your repository name:
+1. Go to https://github.com/settings/developers
+2. Click **"New OAuth App"**
+3. Fill in:
+   - **Application name:** `git-UI-toolbox`
+   - **Homepage URL:** `https://heartran.github.io/git-UI-toolbox/`
+   - **Authorization callback URL:** `https://[your-railway-url]/api/auth/github/callback` *(you'll update this after Railway deployment)*
+4. Copy **Client ID** and generate **Client Secret**
 
-```js
-base: '/git-UI-toolbix/',
-```
+### 2. Add GitHub Secrets
 
-**2. Add the repository secret** (Settings → Secrets and variables → Actions):
+In your repository, go to **Settings → Secrets and variables → Actions** and add:
 
-| Secret | Value |
+| Secret Name | Value |
 |---|---|
-| `VITE_API_BASE` | Full HTTPS URL of your deployed backend, e.g. `https://api.example.com` |
+| `GITHUB_CLIENT_ID` | Your OAuth App Client ID |
+| `GITHUB_CLIENT_SECRET` | Your OAuth App Client Secret |
 
-**3. Enable GitHub Pages** in repository settings: Source → **GitHub Actions**.
+### 3. Deploy Frontend — GitHub Pages
 
-Push to `main` — the workflow in `.github/workflows/deploy.yml` will build and deploy automatically.
+The frontend builds automatically via GitHub Actions.
 
-### Backend — any Node.js host
+**Prerequisites:**
+- `vite.config.js` has `base: '/git-UI-toolbox/'` (already set)
+- Enable GitHub Pages in repo settings: Source → **GitHub Actions**
 
-The backend is a plain Express app with no database and no state. It can be deployed to Railway, Render, Fly.io, a VPS, or any platform that runs Node.js.
+Push to `main` — `.github/workflows/deploy.yml` handles it.
 
-Required environment variables:
+Frontend will be live at: **https://heartran.github.io/git-UI-toolbox/**
 
-| Variable | Description |
-|---|---|
-| `GITHUB_TOKEN` | GitHub PAT with `repo` scope |
-| `PORT` | Port to listen on (default: `3001`) |
+### 4. Deploy Backend — Railway
 
-For production, restrict the `cors()` origin in `server/index.js` to your frontend domain.
+The backend Express server handles OAuth and proxies GitHub API calls.
+
+**Steps:**
+
+1. Go to https://railway.app and sign in with GitHub
+2. Click **"New Project"** → **"Deploy from GitHub repo"** → Select `git-UI-toolbox`
+3. Railway auto-detects `railway.json` and deploys automatically
+4. Once deployed, copy your Railway URL (e.g., `https://git-ui-toolbox-backend.up.railway.app`)
+5. In your GitHub OAuth App settings, update **Authorization callback URL** to:
+   ```
+   https://your-railway-url/api/auth/github/callback
+   ```
+
+Backend environment variables are automatically set from GitHub Secrets.
+
+---
+
+**That's it!** The app is now fully deployed:
+- Frontend: Static site on GitHub Pages
+- Backend: OAuth + GitHub API proxy on Railway
+- Zero configuration needed for users — just "Login con GitHub" 🎉
 
 ---
 
 ## Security
 
-- `GITHUB_TOKEN` lives exclusively in the backend process — never in the built assets, never sent to the browser.
-- The generated bash scripts contain repository metadata (commit SHAs, author names) but no credentials.
-- The frontend is fully auditable: it is a static React app with no hidden network calls.
+- **OAuth credentials (Client Secret) never reach the browser** — handled server-side on Railway only
+- OAuth state token validated for CSRF protection
+- The generated bash scripts contain repository metadata (commit SHAs, author names) but no credentials
+- The frontend is fully auditable: it is a static React app with no hidden network calls
+- All GitHub API calls proxied through backend — frontend never authenticates directly
 
 ---
 
@@ -191,10 +217,16 @@ Git UI Toolbox is designed to grow. Planned tools:
 
 Contributions and tool proposals are welcome — open an issue to discuss.
 
-- React 18 + Vite 6
-- Zero external UI dependencies
-- GitHub REST API v3
-- Deployed via GitHub Actions → GitHub Pages
+---
+
+## Tech Stack
+
+- **Frontend:** React 18 + Vite 6 (static build → GitHub Pages)
+- **Backend:** Express.js (Node.js) → Railway
+- **Authentication:** GitHub OAuth 2.0 (server-side)
+- **API:** GitHub REST API v3 (proxied through backend)
+- **Styling:** Zero external UI dependencies (inline styles with design tokens)
+- **Deployment:** GitHub Actions (build) + GitHub Pages (frontend) + Railway (backend)
 
 ## Contributing
 
